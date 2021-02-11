@@ -16,7 +16,7 @@ https://github.com/automote/ESP-CoAP
 #include <Arduino.h>
 #include <WiFiUdp.h>
 
-//current coap attributes
+//Current coap attributes
 //Atrybuty CoAP'a
 #define COAP_DEFAULT_PORT 5683
 #define COAP_VERSION 1
@@ -24,7 +24,7 @@ https://github.com/automote/ESP-CoAP
 #define COAP_OPTION_HEADER_SIZE 1
 #define COAP_PAYLOAD_MARKER 0xFF
 
-//configuration
+//Configuration
 //Konfiguracja CoAP'a
 #define MAX_OPTION_NUM 6
 #define BUF_MAX_SIZE 128
@@ -33,9 +33,10 @@ https://github.com/automote/ESP-CoAP
 #define MAX_OBSERVER 2
 
 //Wyliczanie numer opcji
+//Computing option number
 #define COAP_OPTION_DELTA(v, n) (v < 13 ? (*n = (0xFF & v)) : (v <= 0xFF + 13 ? (*n = 13) : (*n = 14)))
 
-//coap message types
+//Coap message types
 //CoAP: typy wiadomosci
 typedef enum
 {
@@ -45,8 +46,8 @@ typedef enum
 	COAP_RESET = 3,
 } COAP_TYPE;
 
-//coap method values
-//CoAP: metody
+//Coap method values
+//CoAP metody
 typedef enum
 {
 	COAP_EMPTY = 0,
@@ -56,8 +57,8 @@ typedef enum
 	COAP_DELETE = 4,
 } COAP_METHOD;
 
-//coap response values
-//CoAP: kody odpowiedzi
+//Coap response values
+//CoAP kody odpowiedzi
 typedef enum
 {
 	COAP_EMPTY_MESSAGE = 0,
@@ -83,8 +84,8 @@ typedef enum
 	COAP_PROXYING_NOT_SUPPORTED = 165
 } COAP_RESPONSE_CODE;
 
-//coap option values
-//CoAP: kody opcji
+//Coap option values
+//CoAP kody opcji
 typedef enum
 {
 	COAP_IF_MATCH = 1,
@@ -105,7 +106,7 @@ typedef enum
 	COAP_OBSERVE = 6
 } COAP_OPTION_NUMBER;
 
-//coap content format types
+//Coap content format types
 //CoAP: kody formatow
 typedef enum
 {
@@ -118,7 +119,7 @@ typedef enum
 	COAP_APPLICATION_CBOR = 60
 } COAP_CONTENT_TYPE;
 
-//coap class::used for resource discovery request
+//Coap class::used for resource discovery request
 //Klasa uzywana do Discover
 class resource_dis
 {
@@ -128,7 +129,7 @@ public:
 	//String title;
 };
 
-//coap option class
+//Coap option class
 //Klasa wykorzystywana do przechowywania opcji
 class coapOption
 {
@@ -138,7 +139,7 @@ public:
 	uint8_t *buffer;
 };
 
-//coap packet class
+//Coap packet class
 //Klasa definiuje pakiet CoAP
 class coapPacket
 {
@@ -154,7 +155,7 @@ public:
 	uint8_t optionnum;
 	coapOption options[MAX_OPTION_NUM];
 	//Metoda parsuje otrzymany pakiet na obiekt klasy coapPacket
-	void bufferToPacket(uint8_t buffer[], int32_t packetlen);
+	bool bufferToPacket(uint8_t buffer[], int32_t packetlen);
 	//Metoda parsuje otrzymane opcje na obiekty klasy coapOption
 	int parseOption(coapOption *option, uint16_t *running_delta, uint8_t **buf, size_t buflen);
 	coapPacket();
@@ -171,6 +172,7 @@ public:
 //Callback, pozwala na wywołanie odpowiednich funkcji przez program (automatycznie)
 typedef void (*callback)(coapPacket *, IPAddress, int, int, uint8_t);
 
+//Class defines URI
 //Klasa definiuje obiekt coapUri
 class coapUri
 {
@@ -184,7 +186,7 @@ public:
 	callback find(String url);
 };
 
-//coap class::used for maintaining the details of clients making observe request
+//Coap class::used for maintaining the details of clients making observe request
 //Klasa coapObserver odpowiada za przechowywanie i działanie Observatora
 class coapObserver
 {
@@ -205,7 +207,7 @@ public:
 	void deleteObserver();
 };
 
-//coap class
+//Coap server class
 //Glowna klasa, steruje praca calosci
 class coapServer
 {
