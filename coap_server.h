@@ -30,7 +30,7 @@ https://github.com/automote/ESP-CoAP
 #define BUF_MAX_SIZE 128
 #define MAX_CALLBACK 7
 #define MAX_AGE_DEFAULT 60
-#define MAX_OBSERVER 2
+#define MAX_OBSERVER 3
 
 //Wyliczanie numer opcji
 //Computing option number
@@ -220,9 +220,9 @@ public:
 	//Metoda tworzy serwer
 	void server(callback c, String url);
 	//Glowna petla sewera z niej wywolywane sa odpowienie funkcje
-	bool loop();
+	void loop();
 	//Metoda wysylą pakiet
-	uint16_t sendPacket(coapPacket *packet, IPAddress ip, int port);
+	bool sendPacket(coapPacket *packet, IPAddress ip, int port);
 	//Metoda odkrywa dostepne zasoby
 	void resourceDiscovery(coapPacket *packet, IPAddress ip, int port, resource_dis resource[]);
 	//Metoda formatuje pakiet do wyslania
@@ -244,4 +244,4 @@ public:
 	uint8_t countLength(uint8_t messageid);
 };
 
-#endif _coap_server_H_
+#endif
