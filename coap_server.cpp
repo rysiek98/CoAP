@@ -369,7 +369,7 @@ void coapServer::loop()
         }
     }
 
-    //checking for the change for resource
+    //Checking for the change for resource
     //Obsluga obserwatora.  Funkcjonalnosc znacznie zmodyfikowana.
     unsigned long currentMillis = millis();
     for (int i = 0; i < obsCounter; i++)
@@ -381,10 +381,11 @@ void coapServer::loop()
             request->code = COAP_GET;
             request->type = COAP_NONCON;
             request->optionnum = 0;
-            obsStateArray[0] = (obsState >> 8);
-            obsStateArray[1] = obsState & 0xff;
-            request->options[0].buffer = (uint8_t *)obsStateArray;
-            request->options[0].length = 2;
+            //Zmienna pomocnicza, pomaga programowi w obsłudze Obserwatora
+            //An auxiliary variable, helps to correctly use Observer service
+            uint8_t tmpObsState = 10;
+            request->options[0].buffer = &tmpObsState;
+            request->options[0].length = 1;
             request->options[0].number = COAP_OBSERVE;
             request->optionnum = 1;
             //Ustawia wskaznik na aktualnie aktualizowanego obserwatora.
@@ -729,40 +730,13 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
                 eTag = 0;
                 storedIP = ip;
             }
-            // else if (compareArray(storedResponse, (uint8_t *)payload, storedResponseLen, payloadLen))
-            // {
-            //     response->options[response->optionnum].buffer = storedETag;
-            //     response->options[response->optionnum].length = storedETagLen;
-            //     response->options[response->optionnum++].number = COAP_E_TAG;
-            //     response->code = COAP_VALID;
-            //     response->payloadlen = 0;
-            //     response->payload = nullptr;
-            // }
-            // else
-            // {
-            //     delete[] storedResponse;
-            //     delete[] storedETag;
-            //     storedResponse = nullptr;
-            //     storedETag = nullptr;
-            //     storedResponse = new uint8_t[payloadLen];
-            //     memcpy(storedResponse, (uint8_t *)payload, payloadLen);
-            //     storedResponseLen = payloadLen;
-            //     uint8_t eTag = (uint8_t)response->messageid + (uint8_t)55;
-            //     storedETagLen = countLength(eTag);
-            //     storedETag = new uint8_t[storedETagLen];
-            //     memcpy(storedETag, &eTag, storedETagLen);
-            //     response->options[response->optionnum].buffer = storedETag;
-            //     response->options[response->optionnum].length = storedETagLen;
-            //     response->options[response->optionnum++].number = COAP_E_TAG;
-            //     eTag = 0;
-            // }
         }
         //Obsluga obserwatora.
         if (request->options[num].number == COAP_OBSERVE && *request->options[num].buffer != 1)
         {
             response->token = actualObserver->observer_token;
             response->tokenlen = actualObserver->observer_tokenlen;
-            //Obsluga ETag dla obserwatora. Dodana funkcjonalnosc.
+            //Obsluga ETag dla obserwatora.
             if (actualObserver != nullptr)
             {
                 if (compareArray(actualObserver->observer_storedResponse, (uint8_t *)payload, actualObserver->observer_storedResponseLen, payloadLen))
@@ -813,6 +787,8 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
                     actualObserver->observer_repeatedPayload++;
                 }
             }
+            //Licznik stanu obsState jest typu uint16_t, stąd gdy dojdziemy do granicznej wartości musimy go zrestartować
+            //obsState counter is uint16_t type, so if we reach frontier value we should rest counter to default value
             if (obsState >= 65532)
             {
                 obsState = 10;
@@ -821,6 +797,8 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
             {
                 obsState++;
             }
+            //Konwersja zmiennej typu uint16_t na tablice typu uint8_t
+            //Conversion from uint16_t type to int8_t type array
             obsStateArray[0] = (obsState >> 8);
             obsStateArray[1] = obsState & 0xff;
             response->options[response->optionnum].buffer = (uint8_t *)obsStateArray;
@@ -850,8 +828,7 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
     }
     else if (request->code_() == COAP_PUT)
     {
-        //String str = "PUT OK";
-        //const char *payload = str.c_str();
+        //To improve...
         if (erType != -1)
         {
             response->code = erType;
@@ -881,7 +858,7 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
     }
     else if (request->code_() == COAP_POST || request->code_() == COAP_DELETE)
     {
-
+        //To do...
         response->code = erType;
         response->payloadlen = payloadLen;
         if (payloadLen > 0)
@@ -965,7 +942,9 @@ void coapServer::notification(char *payload, String url, uint8_t payloadLen)
     response->payload = (uint8_t *)payload;
     response->payloadlen = payloadLen;
     response->optionnum = 0;
-    if (obsState >= 253)
+    //Licznik stanu obsState jest typu uint16_t, stąd gdy dojdziemy do granicznej wartości musimy go zrestartować
+    //obsState counter is uint16_t type, so if we reach frontier value we should rest counter to default value
+    if (obsState >= 65532)
     {
         obsState = 10;
     }
@@ -973,6 +952,8 @@ void coapServer::notification(char *payload, String url, uint8_t payloadLen)
     {
         obsState++;
     }
+    //Konwersja zmiennej typu uint16_t na tablice typu uint8_t
+    //Conversion from uint16_t type to int8_t type array
     obsStateArray[0] = (obsState >> 8);
     obsStateArray[1] = obsState & 0xff;
     response->options[response->optionnum].buffer = (uint8_t *)obsStateArray;
@@ -1012,14 +993,12 @@ void coapServer::sendError(coapPacket *packet, IPAddress ip, int port, COAP_RESP
     request->code = error;
     request->optionnum = 0;
 
-    //Dodatkowe opcje dodawane do pakietu.
     char optionBuffer[2];
     optionBuffer[0] = ((uint16_t)COAP_TEXT_PLAIN & 0xFF00) >> 8;
     optionBuffer[1] = ((uint16_t)COAP_TEXT_PLAIN & 0x00FF);
     request->options[request->optionnum].buffer = (uint8_t *)optionBuffer;
     request->options[request->optionnum].length = 2;
     request->options[request->optionnum++].number = COAP_CONTENT_FORMAT;
-    //Wyslij odpowiedz.
     sendPacket(request, ip, port);
 }
 
