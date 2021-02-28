@@ -260,7 +260,7 @@ void coapServer::loop()
                         //Gdy dostaniemy puste zadanie typu COAP_RESET, usuwamy uzytkownika z listy obserwatorow.
                         for (uint8_t i = 0; i < obsCounter; i++)
                         {
-                            if (observer[i].observer_clientip == Udp.remoteIP())
+                            if (observer[i].clientip == Udp.remoteIP())
                             {
                                 observer[i].deleteObserver();
                                 if (i < (MAX_OBSERVER - 1))
@@ -301,8 +301,8 @@ void coapServer::loop()
                             {
                                 for (uint8_t i = 0; i < obsCounter; i++)
                                 {
-                                    if (observer[i].observer_clientip == Udp.remoteIP() &&
-                                        observer[i].observer_url == url)
+                                    if (observer[i].clientip == Udp.remoteIP() &&
+                                        observer[i].url == url)
                                     {
                                         observer[i].deleteObserver();
                                         if (i < (MAX_OBSERVER - 1))
@@ -374,7 +374,7 @@ void coapServer::loop()
     unsigned long currentMillis = millis();
     for (int i = 0; i < obsCounter; i++)
     { //Sprawdzamy czy czas jaki czas uplynal od ostatniego wyslanego pakietu do obserwatora (czy jeszcze jest swiezy czy już nalezy go odswiezyc).
-        if (currentMillis - observer[i].observer_prevMillis >= (unsigned long)observer[i].observer_maxAge)
+        if (currentMillis - observer[i].prevMillis >= (unsigned long)observer[i].maxAge)
         {
             //Jesli wymagane jest odswiezenie waznosci odpowiedzi to ustaw wartosci pakietu do wyslania i wywolaj callback zasobu.
             request->version = COAP_VERSION;
@@ -390,11 +390,11 @@ void coapServer::loop()
             request->optionnum = 1;
             //Ustawia wskaznik na aktualnie aktualizowanego obserwatora.
             actualObserver = &observer[i];
-            uri.find(observer[i].observer_url)(request, observer[i].observer_clientip,
-                                               observer[i].observer_clientport, 1, request->accept());
+            uri.find(observer[i].url)(request, observer[i].clientip,
+                                      observer[i].clientport, 1, request->accept());
             currentMillis = (unsigned long)millis();
             //Aktualizuje czas ostatniej aktualizacji zasobu.
-            observer[i].observer_prevMillis = currentMillis;
+            observer[i].prevMillis = currentMillis;
             actualObserver = nullptr;
         }
     }
@@ -484,8 +484,8 @@ bool coapServer::sendPacket(coapPacket *packet, IPAddress ip, int port)
     if (packet->type_() == COAP_RESET || packet->type_() == COAP_NONCON || packet->type_() == COAP_CON)
     {
         packet->messageid++;
-        request->messageid = packet->messageid;
     }
+    request->messageid = packet->messageid;
 
     uint8_t buffer[BUF_MAX_SIZE];
     for (int i = 0; i < BUF_MAX_SIZE; i++)
@@ -638,6 +638,29 @@ void coapServer::resourceDiscovery(coapPacket *response, IPAddress ip, int port,
     sendPacket(response, Udp.remoteIP(), Udp.remotePort());
 }
 
+//Metoda wysyła ACK w przypadku gdy chcemy wysłać ACK i payload oddzielnie
+void coapServer::sendSeparateResponse(IPAddress ip, int port)
+{
+    //Tworzymy obiekt w ktorym bedziemy przechowywac dane do wyslania.
+    coapPacket *response = new coapPacket();
+
+    response->version = COAP_VERSION;
+    response->tokenlen = 0;
+    response->token = nullptr;
+    response->messageid = request->messageid;
+    response->type = COAP_ACK;
+    response->payloadlen = 0;
+    response->payload = nullptr;
+    response->optionnum = 0;
+    response->code = COAP_EMPTY_MESSAGE;
+
+    sendPacket(response, ip, port);
+    //Usuwamy obiekt przechowujacy pakiet po wyslaniu pakietu.
+    delete response;
+    response = nullptr;
+    request->type = COAP_ACK;
+}
+
 //Metoda sluzy do przygotowania pakietu z odpowiedzią do wyslania.
 void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_TYPE contentType, char *payload, uint8_t payloadLen, int store)
 {
@@ -660,6 +683,10 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
     else if (request->type_() == COAP_NONCON)
     {
         response->type = COAP_NONCON;
+    }
+    else if (request->type_() == COAP_ACK)
+    {
+        response->type = COAP_CON;
     }
 
     uint8_t num = 0, num2 = 0;
@@ -699,16 +726,32 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
 
         response->optionnum = 0;
 
-        if (request->options[num2].number == COAP_E_TAG && storedETag != nullptr && request->options[num].number != COAP_OBSERVE)
+        if (request->options[num2].number == COAP_E_TAG)
         {
-            if (*request->options[num2].buffer == *storedETag)
+
+            //Skoro klient w żądaniu GET zawarł ETag oznacza to że przechowują odpowiedź oznaczoną ETag'iem i można używać mechanizmu validacji
+            //If client used ETag we know that client store response so we could use Validation mechanic
+            for (int i = 0; i < obsCounter; i++)
             {
-                response->options[response->optionnum].buffer = storedETag;
-                response->options[response->optionnum].length = storedETagLen;
-                response->options[response->optionnum++].number = COAP_E_TAG;
-                response->code = COAP_VALID;
-                response->payloadlen = 0;
-                response->payload = nullptr;
+                if (*observer[i].etag == *request->options[num2].buffer)
+                {
+                    observer[i].eTagActivated = true;
+                }
+            }
+
+            //Sprawdzamy czy ETag zawarty w żądaniu jest taki sam jak ETag przechowywanego żądania, używamy mechanizmu walidacji
+            //If request includes ETag server compare ETag from request with stored Etag, if ETags are identical server use validation mechanic
+            if (storedETag != nullptr && request->options[num].number != COAP_OBSERVE)
+            {
+                if (*request->options[num2].buffer == *storedETag)
+                {
+                    response->options[response->optionnum].buffer = storedETag;
+                    response->options[response->optionnum].length = storedETagLen;
+                    response->options[response->optionnum++].number = COAP_E_TAG;
+                    response->code = COAP_VALID;
+                    response->payloadlen = 0;
+                    response->payload = nullptr;
+                }
             }
         }
 
@@ -734,57 +777,58 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
         //Obsluga obserwatora.
         if (request->options[num].number == COAP_OBSERVE && *request->options[num].buffer != 1)
         {
-            response->token = actualObserver->observer_token;
-            response->tokenlen = actualObserver->observer_tokenlen;
+            response->token = actualObserver->token;
+            response->tokenlen = actualObserver->tokenlen;
             //Obsluga ETag dla obserwatora.
             if (actualObserver != nullptr)
             {
-                if (compareArray(actualObserver->observer_storedResponse, (uint8_t *)payload, actualObserver->observer_storedResponseLen, payloadLen))
+                if (compareArray(actualObserver->storedResponse, (uint8_t *)payload, actualObserver->storedResponseLen, payloadLen) &&
+                    actualObserver->eTagActivated)
                 {
-                    response->options[response->optionnum].buffer = actualObserver->observer_etag;
-                    response->options[response->optionnum].length = actualObserver->observer_etagLen;
+                    response->options[response->optionnum].buffer = actualObserver->etag;
+                    response->options[response->optionnum].length = actualObserver->etagLen;
                     response->options[response->optionnum++].number = COAP_E_TAG;
                     response->code = COAP_VALID;
-                    actualObserver->observer_repeatedPayload = 0;
+                    actualObserver->repeatedPayload = 0;
                     response->payloadlen = 0;
                     response->payload = nullptr;
                 }
-                else if (actualObserver->observer_storedResponse == nullptr)
+                else if (actualObserver->storedResponse == nullptr)
                 {
-                    actualObserver->observer_storedResponse = new uint8_t[response->payloadlen];
-                    memcpy(actualObserver->observer_storedResponse, (uint8_t *)payload, response->payloadlen);
-                    actualObserver->observer_storedResponseLen = response->payloadlen;
+                    actualObserver->storedResponse = new uint8_t[response->payloadlen];
+                    memcpy(actualObserver->storedResponse, (uint8_t *)payload, response->payloadlen);
+                    actualObserver->storedResponseLen = response->payloadlen;
                     uint8_t eTag = (uint8_t)response->messageid + obsState;
-                    actualObserver->observer_etagLen = countLength(eTag);
-                    actualObserver->observer_etag = new uint8_t[actualObserver->observer_etagLen];
-                    memcpy(actualObserver->observer_etag, &eTag, actualObserver->observer_etagLen);
-                    response->options[response->optionnum].buffer = actualObserver->observer_etag;
-                    response->options[response->optionnum].length = actualObserver->observer_etagLen;
+                    actualObserver->etagLen = countLength(eTag);
+                    actualObserver->etag = new uint8_t[actualObserver->etagLen];
+                    memcpy(actualObserver->etag, &eTag, actualObserver->etagLen);
+                    response->options[response->optionnum].buffer = actualObserver->etag;
+                    response->options[response->optionnum].length = actualObserver->etagLen;
                     response->options[response->optionnum++].number = COAP_E_TAG;
                     eTag = 0;
                 }
-                else if (actualObserver->observer_repeatedPayload >= 3)
-                {
-                    actualObserver->observer_repeatedPayload = 0;
-                    delete[] actualObserver->observer_storedResponse;
-                    delete[] actualObserver->observer_etag;
-                    actualObserver->observer_storedResponse = nullptr;
-                    actualObserver->observer_etag = nullptr;
-                    actualObserver->observer_storedResponse = new uint8_t[response->payloadlen];
-                    memcpy(actualObserver->observer_storedResponse, (uint8_t *)payload, response->payloadlen);
-                    actualObserver->observer_storedResponseLen = response->payloadlen;
-                    uint8_t eTag = (uint8_t)response->messageid + obsState;
-                    actualObserver->observer_etagLen = countLength(eTag);
-                    actualObserver->observer_etag = new uint8_t[actualObserver->observer_etagLen];
-                    memcpy(actualObserver->observer_etag, &eTag, actualObserver->observer_etagLen);
-                    response->options[response->optionnum].buffer = actualObserver->observer_etag;
-                    response->options[response->optionnum].length = actualObserver->observer_etagLen;
-                    response->options[response->optionnum++].number = COAP_E_TAG;
-                    eTag = 0;
-                }
+                // else if (actualObserver->repeatedPayload >= 3)
+                // {
+                //     actualObserver->repeatedPayload = 0;
+                //     delete[] actualObserver->storedResponse;
+                //     delete[] actualObserver->etag;
+                //     actualObserver->observer_storedResponse = nullptr;
+                //     actualObserver->etag = nullptr;
+                //     actualObserver->observer_storedResponse = new uint8_t[response->payloadlen];
+                //     memcpy(actualObserver->observer_storedResponse, (uint8_t *)payload, response->payloadlen);
+                //     actualObserver->storedResponseLen = response->payloadlen;
+                //     uint8_t eTag = (uint8_t)response->messageid + obsState;
+                //     actualObserver->etagLen = countLength(eTag);
+                //     actualObserver->etag = new uint8_t[actualObserver->etagLen];
+                //     memcpy(actualObserver->etag, &eTag, actualObserver->etagLen);
+                //     response->options[response->optionnum].buffer = actualObserver->etag;
+                //     response->options[response->optionnum].length = actualObserver->etagLen;
+                //     response->options[response->optionnum++].number = COAP_E_TAG;
+                //     eTag = 0;
+                // }
                 else
                 {
-                    actualObserver->observer_repeatedPayload++;
+                    actualObserver->repeatedPayload++;
                 }
             }
             //Licznik stanu obsState jest typu uint16_t, stąd gdy dojdziemy do granicznej wartości musimy go zrestartować
@@ -818,7 +862,7 @@ void coapServer::sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_T
         uint8_t maxAge = 0;
         if (actualObserver != nullptr)
         {
-            maxAge = (uint8_t)(actualObserver->observer_maxAge / 1000);
+            maxAge = (uint8_t)(actualObserver->maxAge / 1000);
             response->options[response->optionnum].buffer = &maxAge;
             response->options[response->optionnum].length = 1;
             response->options[response->optionnum++].number = COAP_MAX_AGE;
@@ -908,26 +952,27 @@ void coapServer::sendResponse(IPAddress ip, int port, char *payload, uint8_t pay
 void coapServer::addObserver(String url, coapPacket *request, IPAddress ip, int port)
 {
     //storing the details of clients
-    observer[obsCounter].observer_tokenlen = request->tokenlen;
-    observer[obsCounter].observer_token = new uint8_t[observer[obsCounter].observer_tokenlen];
-    memcpy(observer[obsCounter].observer_token, request->token, request->tokenlen);
-    observer[obsCounter].observer_clientip = ip;
-    observer[obsCounter].observer_clientport = port;
-    observer[obsCounter].observer_url = url;
-    observer[obsCounter].observer_maxAge = MAX_AGE_DEFAULT * 1000;
+    observer[obsCounter].tokenlen = request->tokenlen;
+    observer[obsCounter].token = new uint8_t[observer[obsCounter].tokenlen];
+    memcpy(observer[obsCounter].token, request->token, request->tokenlen);
+    observer[obsCounter].clientip = ip;
+    observer[obsCounter].clientport = port;
+    observer[obsCounter].url = url;
+    observer[obsCounter].maxAge = MAX_AGE_DEFAULT * 1000;
     for (int i = 0; i < request->optionnum; i++)
     {
         if (request->options[i].number == COAP_MAX_AGE)
         {
-            observer[obsCounter].observer_maxAge = ((unsigned long)(*request->options[i].buffer)) * 1000;
+            observer[obsCounter].maxAge = ((unsigned long)(*request->options[i].buffer)) * 1000;
             break;
         }
     }
-    observer[obsCounter].observer_etag = nullptr;
-    observer[obsCounter].observer_etagLen = 0;
-    observer[obsCounter].observer_storedResponse = nullptr;
-    observer[obsCounter].observer_storedResponseLen = 0;
-    observer[obsCounter++].observer_repeatedPayload = 0;
+    observer[obsCounter].etag = nullptr;
+    observer[obsCounter].etagLen = 0;
+    observer[obsCounter].storedResponse = nullptr;
+    observer[obsCounter].storedResponseLen = 0;
+    observer[obsCounter].eTagActivated = false;
+    observer[obsCounter++].repeatedPayload = 0;
 }
 
 //Wywolywanie notyfikacji obserwatora. Funkcja modyfikowana.
@@ -966,18 +1011,18 @@ void coapServer::notification(char *payload, String url, uint8_t payloadLen)
     for (uint8_t i = 0; i < obsCounter; i++)
     {
         //send notification
-        if (observer[i].observer_url == url)
+        if (observer[i].url == url)
         {
-            observer[i].observer_repeatedPayload++;
-            response->tokenlen = observer[i].observer_tokenlen;
-            response->token = observer[i].observer_token;
-            uint8_t maxAge = (uint8_t)(observer[i].observer_maxAge / 1000);
+            observer[i].repeatedPayload++;
+            response->tokenlen = observer[i].tokenlen;
+            response->token = observer[i].token;
+            uint8_t maxAge = (uint8_t)(observer[i].maxAge / 1000);
             response->options[response->optionnum].buffer = &maxAge;
             response->options[response->optionnum].length = 1;
             response->options[response->optionnum++].number = COAP_MAX_AGE;
-            sendPacket(response, observer[i].observer_clientip,
-                       observer[i].observer_clientport);
-            observer[i].observer_prevMillis = (unsigned long)millis();
+            sendPacket(response, observer[i].clientip,
+                       observer[i].clientport);
+            observer[i].prevMillis = (unsigned long)millis();
         }
     }
     delete response;
@@ -1061,24 +1106,25 @@ uint8_t coapServer::countLength(uint8_t messageid)
 //Funkcja wywolywana w momencie usuwania obserwatora z listy. Zeruje dane. Funkcja wlasna.
 void coapObserver::deleteObserver()
 {
-    if (observer_token != NULL)
+    if (token != NULL)
     {
-        delete[] observer_token;
-        observer_token = nullptr;
+        delete[] token;
+        token = nullptr;
     }
-    observer_tokenlen = 0;
-    observer_url = "";
-    observer_maxAge = 0;
-    observer_prevMillis = 0;
-    observer_etagLen = 0;
-    observer_tokenlen = 0;
-    delete[] observer_etag;
-    observer_etag = nullptr;
-    observer_repeatedPayload = 0;
-    if (observer_storedResponse != NULL)
+    tokenlen = 0;
+    url = "";
+    maxAge = 0;
+    prevMillis = 0;
+    etagLen = 0;
+    tokenlen = 0;
+    delete[] etag;
+    etag = nullptr;
+    repeatedPayload = 0;
+    eTagActivated = false;
+    if (storedResponse != NULL)
     {
-        delete[] observer_storedResponse;
-        observer_storedResponse = nullptr;
+        delete[] storedResponse;
+        storedResponse = nullptr;
     }
-    observer_storedResponseLen = 0;
+    storedResponseLen = 0;
 }

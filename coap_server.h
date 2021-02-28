@@ -191,18 +191,19 @@ public:
 class coapObserver
 {
 public:
-	uint8_t *observer_token;
-	uint8_t observer_tokenlen;
-	IPAddress observer_clientip;
-	int observer_clientport;
-	String observer_url;
-	unsigned long observer_maxAge;
-	unsigned long observer_prevMillis;
-	uint8_t *observer_etag;
-	uint8_t observer_etagLen;
-	uint8_t *observer_storedResponse;
-	uint8_t observer_storedResponseLen;
-	uint8_t observer_repeatedPayload;
+	uint8_t *token;
+	uint8_t tokenlen;
+	IPAddress clientip;
+	int clientport;
+	String url;
+	unsigned long maxAge;
+	unsigned long prevMillis;
+	uint8_t *etag;
+	uint8_t etagLen;
+	uint8_t *storedResponse;
+	uint8_t storedResponseLen;
+	uint8_t repeatedPayload;
+	bool eTagActivated;
 	//Usuwa obserwatora
 	void deleteObserver();
 };
@@ -231,6 +232,7 @@ public:
 	void sendResponse(IPAddress ip, int port, COAP_CONTENT_TYPE contentType, char *payload, uint8_t payloadLen, int store);
 	void sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_TYPE contentType, char *payload, uint8_t payloadLen);
 	void sendResponse(IPAddress ip, int port, int erType, COAP_CONTENT_TYPE contentType, char *payload, uint8_t payloadLen, int store);
+	void sendSeparateResponse(IPAddress ip, int port);
 	//Metoda dodaje obserwatora
 	void addObserver(String url, coapPacket *request, IPAddress ip, int port);
 	//Metoda wysyla notyfikacje z nowym payloadem (Obserwator)
